@@ -1,12 +1,4 @@
 #!/usr/bin/env python3
-"""
-AMD Solarflare system report tool
-
-SPDX-License-Identifier: GPL-2.0-only
-Copyright (C) 2022-2023, Advanced Micro Devices, Inc.
-Copyright (C) 2019-2022, Xilinx, Inc.
-Copyright (C) 2007-2019, Solarflare Communications.
-"""
 
 import os
 import sys
