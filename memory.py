@@ -2,8 +2,8 @@
 """
 Hugepages and Memory Information Collector
 
-This module queries system information about 1GB and 2MB hugepages as well as
-total memory and outputs the results in a JSON format to a timestamped file.
+This module queries system information about hugepages from /sys/devices/system
+and outputs the results in a JSON format to a timestamped file.
 """
 
 import json
@@ -73,64 +73,45 @@ def read_node_hugepages() -> Dict[str, Dict[str, Dict[str, int]]]:
             result[node_id][size_name] = hugepage_info
     
     return result
-def read_meminfo() -> Dict[str, str]:
-    """Read the /proc/meminfo file and return its contents as a dictionary."""
-    result = {}
-    
-    try:
-        with open('/proc/meminfo', 'r') as f:
-            for line in f:
-                # Split the line into key and value
-                parts = line.split(':')
-                if len(parts) >= 2:
-                    key = parts[0].strip()
-                    # Remove trailing "kB" and strip whitespace
-                    value = parts[1].strip().split()[0]
-                    result[key] = value
-    except FileNotFoundError:
-        print("Error: /proc/meminfo not found. This script requires a Linux system.")
-    
-    return result
 
+def read_system_memory() -> int:
+    """Read the total memory from /sys/devices/system/memory"""
+    total_kb = 0
+    memory_path = "/sys/devices/system/memory"
+    
+    if not os.path.exists(memory_path):
+        print(f"Error: {memory_path} not found. System memory information unavailable.")
+        return total_kb
+    
+    # Count memory blocks and multiply by block size
+    try:
+        memory_blocks = [d for d in os.listdir(memory_path) if d.startswith("memory")]
+        block_size_path = os.path.join(memory_path, "block_size_bytes")
+        
+        if os.path.exists(block_size_path):
+            with open(block_size_path, 'r') as f:
+                # Convert hex string to int and convert to KB
+                block_size = int(f.read().strip(), 16) // 1024
+                total_kb = len(memory_blocks) * block_size
+    except (FileNotFoundError, ValueError) as e:
+        print(f"Error reading system memory information: {e}")
+    
+    return total_kb
 
 def get_memory_info() -> Dict[str, Any]:
-    """Gather information about hugepages and total memory."""
-    meminfo = read_meminfo()
+    """Gather information about hugepages and total memory from /sys/devices/system."""
+    hugepages_info = read_node_hugepages()
+    total_memory = read_system_memory()
     
-    # Initialize the result structure
     result = {
         "timestamp": datetime.datetime.now().isoformat(),
         "memory": {
-            "total_kb": int(meminfo.get("MemTotal", 0)),
-            "hugepages": {
-                "1GB": {
-                    "total": int(meminfo.get("HugePages_Total", 0)),
-                    "free": int(meminfo.get("HugePages_Free", 0)),
-                    "reserved": int(meminfo.get("HugePages_Rsvd", 0)),
-                    "size_kb": int(meminfo.get("Hugepagesize", 0))
-                },
-                "2MB": {
-                    "total": 0,
-                    "free": 0,
-                    "reserved": 0,
-                    "size_kb": 2048
-                }
-            }
+            "total_kb": total_memory,
+            "numa_nodes": hugepages_info
         }
     }
     
-    # Check for 2MB hugepages - they might be listed as "Hugepage2MB" or similar
-    for key in meminfo:
-        if re.match(r"Hugepage(s_)?(2MB|2048kB).*", key):
-            if key.endswith("Total"):
-                result["memory"]["hugepages"]["2MB"]["total"] = int(meminfo[key])
-            elif key.endswith("Free"):
-                result["memory"]["hugepages"]["2MB"]["free"] = int(meminfo[key])
-            elif key.endswith("Rsvd"):
-                result["memory"]["hugepages"]["2MB"]["reserved"] = int(meminfo[key])
-    
     return result
-
 
 def save_to_file(data: Dict[str, Any]) -> str:
     """Save the memory information to a JSON file with timestamp in filename."""
@@ -142,13 +123,11 @@ def save_to_file(data: Dict[str, Any]) -> str:
     
     return filename
 
-
 def main():
     """Main function to collect and save memory information."""
     memory_info = get_memory_info()
     filename = save_to_file(memory_info)
     print(f"Memory information saved to {filename}")
-
 
 if __name__ == "__main__":
     main()
