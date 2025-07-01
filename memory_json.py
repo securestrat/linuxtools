@@ -5,107 +5,12 @@ Hugepages and Memory Information Collector
 This module queries system information about hugepages from /sys/devices/system
 and outputs the results in a JSON format to a timestamped file.
 """
-try:
-    TABULATE_AVAILABLE = True
-except ImportError:
-    TABULATE_AVAILABLE = False
-    print("For better table formatting, install tabulate: pip install tabulate")
 
-def display_memory_info(memory_info: Dict[str, Any]) -> None:
-    """Display memory information in formatted tables."""
-    # Display total memory
-    total_memory_kb = memory_info["memory"]["total_kb"]
-    total_memory_gb = total_memory_kb / (1024 * 1024)
-    
-    print("\n" + "=" * 60)
-    print(f" System Memory Information ".center(60, "="))
-    print("=" * 60)
-    print(f"Timestamp: {memory_info['timestamp']}")
-    print(f"Total Memory: {total_memory_kb:,} KB ({total_memory_gb:.2f} GB)")
-    
-    # Display NUMA node information
-    numa_nodes = memory_info["memory"]["numa_nodes"]
-    if not numa_nodes:
-        print("\nNo NUMA node information available.")
-        return
-    
-    # Calculate total hugepage statistics across all nodes
-    hugepage_totals = {}
-    for node_info in numa_nodes.values():
-        for size_name, hugepage_info in node_info.items():
-            if size_name not in hugepage_totals:
-                hugepage_totals[size_name] = {
-                    "size_kb": hugepage_info["size_kb"],
-                    "total": 0, "free": 0, "surplus": 0
-                }
-            hugepage_totals[size_name]["total"] += hugepage_info["total"]
-            hugepage_totals[size_name]["free"] += hugepage_info["free"]
-            hugepage_totals[size_name]["surplus"] += hugepage_info["surplus"]
-    
-    # Display summary table for all nodes
-    print("\n" + "=" * 60)
-    print(f" Hugepages Summary (All NUMA Nodes) ".center(60, "="))
-    print("=" * 60)
-    
-    headers = ["Size", "Total Pages", "Free Pages", "Surplus", "Total Memory", "Free Memory"]
-    
-    # Format and display summary table
-    display_hugepage_table(hugepage_totals, headers)
-    
-    # Display individual NUMA node details
-    for node_id, node_info in sorted(numa_nodes.items()):
-        print("\n" + "-" * 60)
-        print(f" NUMA Node {node_id} Hugepages ".center(60, "-"))
-        print("-" * 60)
-        
-        if not node_info:
-            print("No hugepage information available for this node.")
-            continue
-        
-        display_hugepage_table(node_info, headers)
-
-def display_hugepage_table(hugepage_info, headers):
-    """Display a formatted table of hugepage information."""
-    table_data = []
-    
-    for size_name, info in sorted(hugepage_info.items()):
-        size_kb = info["size_kb"]
-        total = info["total"]
-        free = info["free"]
-        surplus = info["surplus"]
-        
-        # Calculate memory amounts
-        total_memory_mb = (total * size_kb) / 1024
-        free_memory_mb = (free * size_kb) / 1024
-        
-        # Format as GB if larger than 1024 MB
-        total_memory_str = f"{total_memory_mb:.2f} MB"
-        free_memory_str = f"{free_memory_mb:.2f} MB"
-        if total_memory_mb > 1024:
-            total_memory_str = f"{total_memory_mb/1024:.2f} GB"
-        if free_memory_mb > 1024:
-            free_memory_str = f"{free_memory_mb/1024:.2f} GB"
-        
-        table_data.append([
-            size_name, f"{total:,}", f"{free:,}", f"{surplus:,}",
-            total_memory_str, free_memory_str
-        ])
-    
-    if TABULATE_AVAILABLE:
-        print(tabulate(table_data, headers=headers, tablefmt="grid"))
-    else:
-        # Simple fallback formatting
-        fmt = "{:<8} | {:<12} | {:<12} | {:<8} | {:<15} | {:<15}"
-        print(fmt.format(*headers))
-        print("-" * 80)
-        for row in table_data:
-            print(fmt.format(*row))
 import json
 import os
 import datetime
 import re
 from typing import Dict, Any
-from tabulate import tabulate
 
 def read_node_hugepages() -> Dict[str, Dict[str, Dict[str, int]]]:
     """
@@ -226,4 +131,3 @@ def main():
 
 if __name__ == "__main__":
     main()
- 
