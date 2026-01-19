@@ -35,6 +35,10 @@ void run_server() {
     int opt = 1;
     setsockopt(sockfd, SOL_SOCKET, SO_REUSEADDR, &opt, sizeof(opt));
     
+    // Increase receive buffer size for high-rate traffic
+    int rcvbuf = 8 * 1024 * 1024; // 8MB
+    setsockopt(sockfd, SOL_SOCKET, SO_RCVBUF, &rcvbuf, sizeof(rcvbuf));
+    
     memset(&servaddr, 0, sizeof(servaddr)); 
     servaddr.sin_family = AF_INET; 
     servaddr.sin_addr.s_addr = INADDR_ANY; 
@@ -66,17 +70,18 @@ void run_server() {
     int traffic_started = 0;
     time_t start_time = time(NULL);
     time_t last_recv_time = time(NULL);
+    time_t current_time;
+    int timeout_check_counter = 0;
     
     while(running) {
         int n = recvfrom(sockfd, &packet, sizeof(packet), 0, (struct sockaddr *)&cliaddr, &len);
-        time_t current_time = time(NULL);
         
         if (n > 0) {
             if (!traffic_started) {
                 traffic_started = 1;
                 printf("Traffic started.\n");
+                last_recv_time = time(NULL);
             }
-            last_recv_time = current_time;
             
             uint64_t now = get_time_ns();
             uint64_t sent_ts = packet.header.timestamp_ns;
@@ -110,15 +115,21 @@ void run_server() {
             }
         } else {
             // No packet received (timeout or error)
-            if (!traffic_started) {
-                if (difftime(current_time, start_time) > 1800) { // 30 minutes
-                    printf("No traffic received for 30 minutes. Exiting.\n");
-                    break;
-                }
-            } else {
-                if (difftime(current_time, last_recv_time) > 30) { // 30 seconds
-                    printf("Traffic stopped for 30 seconds. Exiting.\n");
-                    break;
+            // Only check time every N iterations to reduce syscall overhead
+            if (++timeout_check_counter >= 10) {
+                current_time = time(NULL);
+                timeout_check_counter = 0;
+                
+                if (!traffic_started) {
+                    if (difftime(current_time, start_time) > 1800) { // 30 minutes
+                        printf("No traffic received for 30 minutes. Exiting.\n");
+                        break;
+                    }
+                } else {
+                    if (difftime(current_time, last_recv_time) > 30) { // 30 seconds
+                        printf("Traffic stopped for 30 seconds. Exiting.\n");
+                        break;
+                    }
                 }
             }
         }
@@ -132,6 +143,10 @@ void run_client() {
     struct sockaddr_in servaddr; 
   
     if ( (sockfd = socket(AF_INET, SOCK_DGRAM, 0)) < 0 ) { perror("socket creation failed"); exit(EXIT_FAILURE); } 
+  
+    // Increase send buffer size for high-rate traffic
+    int sndbuf = 8 * 1024 * 1024; // 8MB
+    setsockopt(sockfd, SOL_SOCKET, SO_SNDBUF, &sndbuf, sizeof(sndbuf));
   
     memset(&servaddr, 0, sizeof(servaddr)); 
     servaddr.sin_family = AF_INET; 
@@ -155,17 +170,25 @@ void run_client() {
         
         uint64_t next_send = get_time_ns();
         
-        while (get_time_ns() < end_time) {
+        while (1) {
             uint64_t now = get_time_ns();
+            if (now >= end_time) break;
+            
             if (now >= next_send) {
                 packet.header.seq_num = seq++;
                 packet.header.timestamp_ns = now;
                 sendto(sockfd, &packet, sizeof(packet), 0, (const struct sockaddr *) &servaddr, sizeof(servaddr)); 
                 next_send += packet_interval_ns;
             } else {
-                 // Busy wait or small sleep? Busy wait for precision
-                 // if diff is large, usleep
-                 if (next_send - now > 100000) usleep(1);
+                 // Adaptive wait: yield for short waits, nanosleep for longer
+                 uint64_t wait_ns = next_send - now;
+                 if (wait_ns > 100000) { // > 100μs
+                     struct timespec ts = {0, wait_ns / 2}; // Sleep half the time
+                     nanosleep(&ts, NULL);
+                 } else if (wait_ns > 1000) { // > 1μs
+                     sched_yield();
+                 }
+                 // else: tight spin for < 1μs
             }
         }
     }
