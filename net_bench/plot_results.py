@@ -9,7 +9,7 @@ def plot_results(csv_file):
         print(f"Error reading CSV: {e}")
         return
 
-    # Assuming CSV columns: timestamp, mbps, latency_avg_us, drops
+    # Assuming CSV columns: timestamp, mbps, latency_avg_ns, drops
     # We want to plot:
     # 1. Throughput vs Time (or Step?)
     # 2. Latency vs Throughput (scatter or line if sorted)
@@ -24,8 +24,8 @@ def plot_results(csv_file):
     ax1.grid(True)
     
     # Plot Latency
-    ax2.plot(data['timestamp'], data['latency_avg_us'], label='Latency (us)', color='orange')
-    ax2.set_ylabel('Latency (us)')
+    ax2.plot(data['timestamp'], data['latency_avg_ns'], label='Latency (ns)', color='orange')
+    ax2.set_ylabel('Latency (ns)')
     ax2.grid(True)
     
     # Plot Drops

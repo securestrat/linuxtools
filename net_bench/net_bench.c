@@ -99,7 +99,7 @@ void run_server() {
     uint64_t max_seq = 0;
     double total_latency = 0;
     
-    printf("timestamp,mbps,latency_avg_us,drops\n");
+    printf("timestamp,mbps,latency_avg_ns,drops\n");
     
     udp_packet_t packet;
     socklen_t len = sizeof(cliaddr);
@@ -126,9 +126,9 @@ void run_server() {
             // Report every 1s
             if (now - last_report_time > 1000000000ULL) {
                 double mbps = (double)total_bytes * 8 / 1000000.0;
-                double avg_lat = (total_pkts > 0) ? (total_latency / total_pkts / 1000.0) : 0;
+                double avg_lat = (total_pkts > 0) ? (total_latency / total_pkts) : 0;
                 
-                printf("%lu,%.2f,%.2f,%lu\n", now/1000000000, mbps, avg_lat, total_drops);
+                printf("%lu,%.2f,%.0f,%lu\n", now/1000000000, mbps, avg_lat, total_drops);
                 fflush(stdout);
                 
                 total_bytes = 0;
