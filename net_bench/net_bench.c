@@ -111,8 +111,8 @@ void run_server() {
         } else {
             // No packet received (timeout or error)
             if (!traffic_started) {
-                if (difftime(current_time, start_time) > 600) { // 10 minutes
-                    printf("No traffic received for 10 minutes. Exiting.\n");
+                if (difftime(current_time, start_time) > 1800) { // 30 minutes
+                    printf("No traffic received for 30 minutes. Exiting.\n");
                     break;
                 }
             } else {
