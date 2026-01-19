@@ -4,7 +4,7 @@
 
 ## Features
 - **Ramp-Up Test**: Automatically increments bandwidth (1 MB/s steps) to find the saturation point.
-- **Metrics**: Captures Throughput (Mbps), Latency (us), and Packet Drops.
+- **Metrics**: Captures Throughput (Mbps), Latency (ns), and Packet Drops.
 - **Visualization**: Includes a Python script to verify results graphically.
 - **Low-Overhead**: Uses UDP for traffic generation to avoid TCP congestion control affecting measurement.
 

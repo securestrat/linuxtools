@@ -36,7 +36,7 @@ On the machine designated to receive traffic:
 *   The tool listens on UDP port `10001`.
 *   Output is redirected to `results.csv` for later analysis.
 *   **Timeouts**: 
-    *   Waits **10 minutes** for traffic to start.
+    *   Waits **30 minutes** for traffic to start.
     *   Stops automatically if traffic ceases for **30 seconds**.
 
 ### Step B: Start the Sender
