@@ -10,61 +10,7 @@ int max_bandwidth_mbps = 100;
 int is_server = 0;
 volatile int running = 1;
 
-// Server Side Logic
-void *receiver_thread(void *arg) {
-    int port_offset = *(int *)arg;
-    int sockfd;
-    struct sockaddr_in servaddr, cliaddr;
-    
-    if ((sockfd = socket(AF_INET, SOCK_DGRAM, 0)) < 0) {
-        perror("socket");
-        return NULL;
-    }
-    
-    // Allow address reuse
-    int opt = 1;
-    setsockopt(sockfd, SOL_SOCKET, SO_REUSEADDR, &opt, sizeof(opt));
 
-    memset(&servaddr, 0, sizeof(servaddr));
-    servaddr.sin_family = AF_INET;
-    servaddr.sin_addr.s_addr = INADDR_ANY;
-    servaddr.sin_port = htons(DATA_PORT + port_offset);
-    
-    if (bind(sockfd, (const struct sockaddr *)&servaddr, sizeof(servaddr)) < 0) {
-        perror("bind");
-        return NULL;
-    }
-    
-    // Set recieve timeout so we can check 'running' flag
-    struct timeval tv;
-    tv.tv_sec = 1;
-    tv.tv_usec = 0;
-    setsockopt(sockfd, SOL_SOCKET, SO_RCVTIMEO, (const char*)&tv, sizeof tv);
-
-    udp_packet_t packet;
-    uint64_t last_seq = 0;
-    
-    // Stats collection (simplified per thread for now, ideally aggregated)
-    // We just print to stdout, expecting parsing or main loop aggregation.
-    // For this prototype, we'll let each thread dump periodically or use atomic counters.
-    // Let's use atomic globals is easier for a single process report.
-    
-    socklen_t len = sizeof(cliaddr);
-    
-    while(running) {
-        int n = recvfrom(sockfd, &packet, sizeof(packet), 0, (struct sockaddr *)&cliaddr, &len);
-        if (n > 0) {
-            uint64_t now = get_time_ns();
-            // Track drops
-            // Track latency (now - packet.header.timestamp_ns)
-            // Just printing raw data for this simplified implementaton might overflow IO.
-            // Better: Main thread prints stats. We accept that this code runs fast.
-            // Let's aggregate in a global struct protected or atomic.
-        }
-    }
-    close(sockfd);
-    return NULL;
-}
 
 // Client Side Logic
 void *sender_thread(void *arg) {
@@ -85,12 +31,22 @@ void run_server() {
     struct sockaddr_in servaddr, cliaddr; 
     if ((sockfd = socket(AF_INET, SOCK_DGRAM, 0)) < 0) { perror("socket creation failed"); exit(EXIT_FAILURE); }
     
+    // Allow address reuse
+    int opt = 1;
+    setsockopt(sockfd, SOL_SOCKET, SO_REUSEADDR, &opt, sizeof(opt));
+    
     memset(&servaddr, 0, sizeof(servaddr)); 
     servaddr.sin_family = AF_INET; 
     servaddr.sin_addr.s_addr = INADDR_ANY; 
     servaddr.sin_port = htons(DATA_PORT); 
     
     if ( bind(sockfd, (const struct sockaddr *)&servaddr, sizeof(servaddr)) < 0 ) { perror("bind failed"); exit(EXIT_FAILURE); } 
+
+    // Set socket receive timeout for checking loop
+    struct timeval tv;
+    tv.tv_sec = 1;
+    tv.tv_usec = 0;
+    setsockopt(sockfd, SOL_SOCKET, SO_RCVTIMEO, (const char*)&tv, sizeof tv);
 
     // Stats
     uint64_t total_bytes = 0;
@@ -106,9 +62,22 @@ void run_server() {
     
     uint64_t last_report_time = get_time_ns();
     
-    while(1) {
+    // Timeout Logic
+    int traffic_started = 0;
+    time_t start_time = time(NULL);
+    time_t last_recv_time = time(NULL);
+    
+    while(running) {
         int n = recvfrom(sockfd, &packet, sizeof(packet), 0, (struct sockaddr *)&cliaddr, &len);
+        time_t current_time = time(NULL);
+        
         if (n > 0) {
+            if (!traffic_started) {
+                traffic_started = 1;
+                printf("Traffic started.\n");
+            }
+            last_recv_time = current_time;
+            
             uint64_t now = get_time_ns();
             uint64_t sent_ts = packet.header.timestamp_ns;
             uint64_t lat = (now > sent_ts) ? (now - sent_ts) : 0;
@@ -117,7 +86,9 @@ void run_server() {
             if (max_seq > 0 && packet.header.seq_num > max_seq + 1) {
                 total_drops += (packet.header.seq_num - max_seq - 1);
             }
-            max_seq = packet.header.seq_num;
+            if (packet.header.seq_num > max_seq) {
+                max_seq = packet.header.seq_num;
+            }
             
             total_bytes += n;
             total_pkts++;
@@ -133,12 +104,26 @@ void run_server() {
                 
                 total_bytes = 0;
                 total_pkts = 0;
-                total_drops = 0; // Interval drops? Or cumulative? Request asked for "drops registered". Interval is better for graphing.
+                total_drops = 0; 
                 total_latency = 0;
                 last_report_time = now;
             }
+        } else {
+            // No packet received (timeout or error)
+            if (!traffic_started) {
+                if (difftime(current_time, start_time) > 600) { // 10 minutes
+                    printf("No traffic received for 10 minutes. Exiting.\n");
+                    break;
+                }
+            } else {
+                if (difftime(current_time, last_recv_time) > 30) { // 30 seconds
+                    printf("Traffic stopped for 30 seconds. Exiting.\n");
+                    break;
+                }
+            }
         }
     }
+    close(sockfd);
 }
 
 void run_client() {
