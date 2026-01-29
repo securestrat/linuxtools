@@ -23,6 +23,8 @@ bpf_text = """
 #include <linux/socket.h>
 #include <linux/net.h>
 
+#define TASK_COMM_LEN 16
+
 // Data structure for events
 struct data_t {
     u32 pid;
